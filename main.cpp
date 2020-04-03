@@ -65,7 +65,7 @@ struct Sphere : Object
 {
     Vec3f center;
     float radius;
-    Sphere(const Vec3f &pos, const float &r, const Material m) : center(pos), radius(r)
+    Sphere(const Vec3f &pos, const float &r, const Material &m) : center(pos), radius(r)
     {
         material = m;
     }
@@ -95,15 +95,44 @@ struct Sphere : Object
     }
     Vec3f get_normal(const Vec3f &v) const
     {
-        return v - center;
+        return (v - center).normalize();
     }
 
 
 };
 struct Plane : Object
 {
-    
-}
+    Vec3f position;
+    Vec3f normal;
+    Plane (const Vec3f &orig, const Vec3f &n, const Material &m) : position(orig), normal(n)
+    {
+        material = m;
+        normal.normalize();
+    }
+    bool intersect(const Vec3f &orig, const Vec3f &dir, float &alpha) const
+    {
+        float d = dot(dir, normal);
+        if (d == 0){
+            return false;
+        }
+        float a = dot(position - orig, normal);
+        if (a == 0){ // when ray orig in the plane 
+            return false;
+        }
+        alpha = a/ d;
+        if (alpha <= 0){
+            return false;
+        }
+        return true;
+    }
+    Vec3f get_normal(const Vec3f &v) const
+    {
+        if (dot(v, normal) < 0){
+            return normal;
+        }
+        return -normal;
+    }
+};
 /*
 struct Triangle : Object
 {
@@ -162,7 +191,7 @@ void scene_intersect(const Vec3f &orig, const Vec3f &dir, std::vector<Object *> 
         Object **first, Vec3f &hit)
 {
     *first = nullptr;
-    float min_dist = max_distance;
+    float min_dist = Options::max_distance;
     for (uint32_t i = 0; i < object.size(); i++){
         float dist;
         if (object[i]->intersect(orig, dir, dist) && dist < min_dist){
@@ -280,7 +309,7 @@ int main(int argc, const char** argv)
     std::vector<Object *> object;
     std::vector<Light *> light;
     // n diff_color , specular, kd, ks, refl. refr
-    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 0.5 ,0, 0.03, 0.1, 0.8);
+    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 0.5 ,0, 0.03, 0.2, 0.8);
     Material mirror(1.0, Vec3f(1.0, 1.0, 1.0), 1.2, 0, 0.001, 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 1.005, 0.8, 0.1, 0, 0);
     Vec3f *buf = nullptr;
@@ -288,10 +317,13 @@ int main(int argc, const char** argv)
     if(sceneId == 1){
        // object.push_back(new Sphere(Vec3f(0,-2,-5),2, plastic));
         //object.push_back(new Sphere(Vec3f(2.5,1,-6),2, plastic));
-        object.push_back(new Sphere(Vec3f(-3,-1,-8),2, glass));
-        object.push_back(new Sphere(Vec3f(0,0,-16),3, plastic));
-        light.push_back(new Light(Vec3f(-2, -2, 20), 0.5));
-        light.push_back(new Light(Vec3f(-2, -2, -40), 0.5));
+        object.push_back(new Sphere(Vec3f(-2,-1,-4),1, glass));
+        object.push_back(new Sphere(Vec3f(0,-4,-16),3, plastic));
+        object.push_back(new Sphere(Vec3f(1, -2, -3),1.5, mirror));
+        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0,-0.5, 0.1), plastic));
+        light.push_back(new Light(Vec3f(2, -2, 7), 0.5));
+        light.push_back(new Light(Vec3f(-2, -2, 5), 1));
+         light.push_back(new Light(Vec3f(0, -10, -5), 1));
         buf = render(object, light);
     }
     bmp = convert(buf);
