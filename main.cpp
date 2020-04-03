@@ -19,10 +19,12 @@ inline float limit(const float lo, const float hi, const float value)
 Vec3f refract(const Vec3f &v, Vec3f  normal, float n2)
 {
     float n1 = 1;
-    float cosa = -limit(-1.f, 1.f, dot(v,normal));
-    if (cosa < 0){ // inside
+    float cosa = limit(-1.f, 1.f, dot(v,normal));
+    if (cosa < 0){
+        cosa = -cosa;
+    } else { // inside
         normal = -normal;
-        std::swap(n1, n2);
+        std::swap(n1, n2);    
     }
     float n = n1/ n2;
     float cosb2 =  1 - n * n *(1 - cosa * cosa);
@@ -30,7 +32,7 @@ Vec3f refract(const Vec3f &v, Vec3f  normal, float n2)
         return Vec3f(0,0,0);
     }
     return v * n + normal * (n * cosa - sqrtf(cosb2));
-}
+} 
 struct Light
 {
     Vec3f position;
@@ -181,7 +183,7 @@ namespace Options
     constexpr float fov =  M_PI / 2;
     constexpr uint32_t width = 512;
     constexpr uint32_t height = 512;
-    constexpr uint32_t max_depth = 4;
+    constexpr uint32_t max_depth = 8;
     constexpr float max_distance = 100000;
     constexpr float offset = 0.01;
     const Vec3f background(0, 0, 0.7);
@@ -312,21 +314,21 @@ int main(int argc, const char** argv)
     std::vector<Object *> object;
     std::vector<Light *> light;
     // n diff_color , specular, kd, ks, refl. refr
-    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 1.1 ,0, 0.03, 0.3, 0.7);
-    Material mirror(1.0, Vec3f(1.0, 1.0, 1.0), 1.2, 0, 0.001, 0.9, 0);
-    Material plastic(1.5, Vec3f(0.7,0,0), 1.205, 0.8, 0.2, 0.1, 0);
+    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.1, 0.2, 0.8);
+    Material mirror(1.0, Vec3f(1.0, 1.0, 1.0), 200, 0, 0.1, 0.9, 0);
+    Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;
     if(sceneId == 1){
-       // object.push_back(new Sphere(Vec3f(0,-2,-5),2, plastic));
+        //object.push_back(new Sphere(Vec3f(0,-2,-5),2, plastic));
         //object.push_back(new Sphere(Vec3f(2.5,1,-6),2, plastic));
-        object.push_back(new Sphere(Vec3f(-2,-1,-4),1, glass));
-        object.push_back(new Sphere(Vec3f(0,-2,-4),1, plastic));
+        object.push_back(new Sphere(Vec3f(-2, 0,-3.5),1, glass));
+        object.push_back(new Sphere(Vec3f(0,-2.5,-4),1, plastic));
         object.push_back(new Sphere(Vec3f(2, -1.5, -5),1, mirror));
         object.push_back(new Sphere(Vec3f(0, 2, -6),1, plastic));
         object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0,-0.5, 0.1), plastic));
         light.push_back(new Light(Vec3f(2, -2, 7), 0.9));
-        //light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
+        light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
         buf = render(object, light);
     }
