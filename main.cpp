@@ -147,7 +147,7 @@ struct Plane : Object
         if ((a1 + a2) % 2 == 0){
             return Vec3f(0.7, 0.7, 0.7);
         }
-        return Vec3f(0.1, 0.1, 0.1);
+        return Vec3f(0.05, 0.05, 0.05);
 
     }
 };
@@ -197,12 +197,12 @@ struct Triangle : Object
 namespace Options
 {
     constexpr float fov =  M_PI / 2;
-    constexpr uint32_t width = 1024;
+    constexpr uint32_t width = 800;
     constexpr uint32_t height = 512;
-    constexpr uint32_t max_depth = 6;
+    constexpr uint32_t max_depth = 4;
     constexpr float max_distance = 10e9;
     constexpr float offset = 0.01;
-    const Vec3f background(0, 0, 0);
+    const Vec3f background(0.08, 0.08, 0.08);
     const Vec3f camera(0,0,0);
 };
 void scene_intersect(const Vec3f &orig, const Vec3f &dir, std::vector<Object *> object, 
@@ -288,6 +288,7 @@ Vec3f  *render(const std::vector<Object *> &object,
         }
     return buf;
 
+
 }
 uint32_t *convert(const Vec3f *buf)
 {
@@ -339,22 +340,25 @@ int main(int argc, const char** argv)
     std::vector<Object *> object;
     std::vector<Light *> light;
     // n, diff_color , specular, kd, ks, refl. refr
-    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.1, 0.2, 0.8);
-    Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 1000, 0, 0.9, 0.9, 0);
+    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.4, 0.2, 0.8);
+    Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 500, 0, 2 , 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
     Material reflective(1.5, Vec3f(0.7,0,0), 125, 0.9, 0.2, 0.8, 0);
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;
     if(sceneId == 1){
-        object.push_back(new Sphere(Vec3f(-2, 0,-3.5),1, glass));
-        object.push_back(new Sphere(Vec3f(0,-2.5,-4),1, plastic));
-        object.push_back(new Sphere(Vec3f(2, -1.5, -5),1, mirror));
-        object.push_back(new Sphere(Vec3f(0, 3, -6),1, plastic));
+        object.push_back(new Sphere(Vec3f(-9, 0.5,-10),3, glass));
+        object.push_back(new Sphere(Vec3f(0,0.5,-10),3, plastic));
+        object.push_back(new Sphere(Vec3f(0, 3,-5),1, plastic));
+        object.push_back(new Sphere(Vec3f(9 , 0.5, -10),3, mirror));
         object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective));
-        light.push_back(new Light(Vec3f(2, -2, 7), 0.9));
         light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
+        light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
         buf = render(object, light);
+    }
+    if (sceneId == 2){
+
     }
     bmp = convert(buf);
     SaveBMP(outFilePath.c_str(), bmp, Options::width, Options::height);
