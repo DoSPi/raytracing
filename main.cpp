@@ -32,7 +32,7 @@ Vec3f refract(const Vec3f &v, Vec3f  normal, float n2)
         return Vec3f(0,0,0);
     }
     return v * n + normal * (n * cosa - sqrtf(cosb2));
-} 
+}  
 struct Light
 {
     Vec3f position;
@@ -183,8 +183,8 @@ namespace Options
     constexpr float fov =  M_PI / 2;
     constexpr uint32_t width = 512;
     constexpr uint32_t height = 512;
-    constexpr uint32_t max_depth = 8;
-    constexpr float max_distance = 100000;
+    constexpr uint32_t max_depth = 6;
+    constexpr float max_distance = 10e9;
     constexpr float offset = 0.01;
     const Vec3f background(0, 0, 0.7);
     const Vec3f camera(0,0,0);
@@ -225,7 +225,7 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
             hit + Options::offset * normal;
     Vec3f reflect_color =cast(reflect_orig, reflect_dir, object, light, depth + 1);
     Vec3f refract_dir = refract(dir, normal, first->material.n).normalize();
-    Vec3f refract_orig = dot(refract_orig, normal) < 0 ? hit - Options::offset * normal :
+    Vec3f refract_orig = dot(refract_dir, normal) < 0 ? hit - Options::offset * normal :
             hit + Options::offset * normal;
     Vec3f refract_color = cast(refract_orig, refract_dir, object, light, depth + 1);
     //Phong illumination model
@@ -259,7 +259,7 @@ Vec3f  *render(const std::vector<Object *> &object,
         const std::vector<Light *> &light)
 {
     Vec3f *buf = new Vec3f[Options::width * Options::height];
-    constexpr float z = -1 / (2.0 * tan(0.5 * Options::fov)) * Options::height;
+    const float z = -1 / (2.0 * tan(0.5 * Options::fov)) * Options::height;
         #pragma omp parallel for
         for (uint32_t i = 0; i < Options::height; i++){
             for (uint32_t j = 0 ; j < Options::width; j++){
@@ -306,16 +306,25 @@ int main(int argc, const char** argv)
     if(cmdLineParams.find("-out") != cmdLineParams.end())
         outFilePath = cmdLineParams["-out"];
     int sceneId = 0;
-    if(cmdLineParams.find("-scene") != cmdLineParams.end())
+    if(cmdLineParams.find("-scene") != cmdLineParams.end()){
         sceneId = atoi(cmdLineParams["-scene"].c_str());
-        if(cmdLineParams.find("-threads") != cmdLineParams.end())
-            omp_set_num_threads(atoi(cmdLineParams["-threads"].c_str()));
+    }
+    if (sceneId != 1){
+        return 0;
+    }
+        if(cmdLineParams.find("-threads") != cmdLineParams.end()){
+            uint32_t threads =atoi(cmdLineParams["-threads"].c_str());
+            if (threads == 0){
+                threads = 1;
+            }
+            omp_set_num_threads(threads);
+        }
 
     std::vector<Object *> object;
     std::vector<Light *> light;
-    // n diff_color , specular, kd, ks, refl. refr
+    // n, diff_color , specular, kd, ks, refl. refr
     Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.1, 0.2, 0.8);
-    Material mirror(1.0, Vec3f(1.0, 1.0, 1.0), 200, 0, 0.1, 0.9, 0);
+    Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 1000, 0, 0.9, 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;

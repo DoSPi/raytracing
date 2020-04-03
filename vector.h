@@ -43,7 +43,7 @@ struct Vec3f
     {
         return Vec3f(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
     }
-    friend Vec3f operator * (const float a, const Vec3f &v)
+    friend Vec3f operator * (const float a, const Vec3f &v) 
     {
         return Vec3f(a * v.x, a * v.y, a* v.z);
     }
