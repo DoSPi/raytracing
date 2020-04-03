@@ -7,7 +7,7 @@
 #include <algorithm>
 #include "Bitmap.h"
 #include "vector.h"
-
+#include <omp.h>
 Vec3f reflect(const Vec3f v,const Vec3f normal)
 {
     return Vec3f(v - normal *2 * dot(v, normal) );
@@ -182,7 +182,7 @@ namespace Options
     constexpr uint32_t width = 512;
     constexpr uint32_t height = 512;
     constexpr uint32_t max_depth = 4;
-    constexpr float max_distance = 1000;
+    constexpr float max_distance = 100000;
     constexpr float offset = 0.01;
     const Vec3f background(0, 0, 0.7);
     const Vec3f camera(0,0,0);
@@ -249,7 +249,6 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
     }
     light_diffuse *= first->material.k_diffuse;
     light_specular *= first->material.k_specular;
-    light_specular =0;
     return first->material.diffuse_color * light_diffuse + Vec3f(1, 1, 1) * light_specular +
             first->material.k_reflection * reflect_color +
             first->material.k_refraction * refract_color;
@@ -259,6 +258,7 @@ Vec3f  *render(const std::vector<Object *> &object,
 {
     Vec3f *buf = new Vec3f[Options::width * Options::height];
     constexpr float z = -1 / (2.0 * tan(0.5 * Options::fov)) * Options::height;
+        #pragma omp parallel for
         for (uint32_t i = 0; i < Options::height; i++){
             for (uint32_t j = 0 ; j < Options::width; j++){
                 float x = (j + 0.5) -  Options::width / 2.0;
@@ -306,24 +306,28 @@ int main(int argc, const char** argv)
     int sceneId = 0;
     if(cmdLineParams.find("-scene") != cmdLineParams.end())
         sceneId = atoi(cmdLineParams["-scene"].c_str());
+        if(cmdLineParams.find("-threads") != cmdLineParams.end())
+            omp_set_num_threads(atoi(cmdLineParams["-threads"].c_str()));
+
     std::vector<Object *> object;
     std::vector<Light *> light;
     // n diff_color , specular, kd, ks, refl. refr
-    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 0.5 ,0, 0.03, 0.2, 0.8);
+    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 1.1 ,0, 0.03, 0.3, 0.7);
     Material mirror(1.0, Vec3f(1.0, 1.0, 1.0), 1.2, 0, 0.001, 0.9, 0);
-    Material plastic(1.5, Vec3f(0.7,0,0), 1.005, 0.8, 0.1, 0, 0);
+    Material plastic(1.5, Vec3f(0.7,0,0), 1.205, 0.8, 0.2, 0.1, 0);
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;
     if(sceneId == 1){
        // object.push_back(new Sphere(Vec3f(0,-2,-5),2, plastic));
         //object.push_back(new Sphere(Vec3f(2.5,1,-6),2, plastic));
         object.push_back(new Sphere(Vec3f(-2,-1,-4),1, glass));
-        object.push_back(new Sphere(Vec3f(0,-4,-16),3, plastic));
-        object.push_back(new Sphere(Vec3f(1, -2, -3),1.5, mirror));
+        object.push_back(new Sphere(Vec3f(0,-2,-4),1, plastic));
+        object.push_back(new Sphere(Vec3f(2, -1.5, -5),1, mirror));
+        object.push_back(new Sphere(Vec3f(0, 2, -6),1, plastic));
         object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0,-0.5, 0.1), plastic));
-        light.push_back(new Light(Vec3f(2, -2, 7), 0.5));
-        light.push_back(new Light(Vec3f(-2, -2, 5), 1));
-         light.push_back(new Light(Vec3f(0, -10, -5), 1));
+        light.push_back(new Light(Vec3f(2, -2, 7), 0.9));
+        //light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
+        light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
         buf = render(object, light);
     }
     bmp = convert(buf);
