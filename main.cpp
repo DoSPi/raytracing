@@ -61,6 +61,7 @@ struct Object
     virtual ~Object() {}
     virtual bool intersect(const Vec3f &orig, const Vec3f &dir, float &alpha) const = 0;
     virtual Vec3f get_normal( const Vec3f &pos) const = 0;
+    virtual Vec3f get_color(const Vec3f &pos) const = 0;
 
 };
 struct Sphere : Object
@@ -99,7 +100,10 @@ struct Sphere : Object
     {
         return (v - center).normalize();
     }
-
+    Vec3f get_color(const Vec3f &pos) const
+    {
+        return material.diffuse_color;
+    }
 
 };
 struct Plane : Object
@@ -133,6 +137,18 @@ struct Plane : Object
             return normal;
         }
         return -normal;
+    }
+    Vec3f get_color(const Vec3f &pos) const
+    {
+        Vec3f r =  pos - position;
+        Vec3f normal = get_normal(pos);
+        int a1 = r.x / 2 + 1000; //hide simmetric part
+        int a2 = r.z / 2;
+        if ((a1 + a2) % 2 == 0){
+            return Vec3f(0.7, 0.7, 0.7);
+        }
+        return Vec3f(0.1, 0.1, 0.1);
+
     }
 };
 /*
@@ -181,12 +197,12 @@ struct Triangle : Object
 namespace Options
 {
     constexpr float fov =  M_PI / 2;
-    constexpr uint32_t width = 512;
+    constexpr uint32_t width = 1024;
     constexpr uint32_t height = 512;
     constexpr uint32_t max_depth = 6;
     constexpr float max_distance = 10e9;
     constexpr float offset = 0.01;
-    const Vec3f background(0, 0, 0.7);
+    const Vec3f background(0, 0, 0);
     const Vec3f camera(0,0,0);
 };
 void scene_intersect(const Vec3f &orig, const Vec3f &dir, std::vector<Object *> object, 
@@ -251,7 +267,7 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
     }
     light_diffuse *= first->material.k_diffuse;
     light_specular *= first->material.k_specular;
-    return first->material.diffuse_color * light_diffuse + Vec3f(1, 1, 1) * light_specular +
+    return first->get_color(hit) * light_diffuse + Vec3f(1, 1, 1) * light_specular +
             first->material.k_reflection * reflect_color +
             first->material.k_refraction * refract_color;
 }
@@ -326,16 +342,15 @@ int main(int argc, const char** argv)
     Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.1, 0.2, 0.8);
     Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 1000, 0, 0.9, 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
+    Material reflective(1.5, Vec3f(0.7,0,0), 125, 0.9, 0.2, 0.8, 0);
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;
     if(sceneId == 1){
-        //object.push_back(new Sphere(Vec3f(0,-2,-5),2, plastic));
-        //object.push_back(new Sphere(Vec3f(2.5,1,-6),2, plastic));
         object.push_back(new Sphere(Vec3f(-2, 0,-3.5),1, glass));
         object.push_back(new Sphere(Vec3f(0,-2.5,-4),1, plastic));
         object.push_back(new Sphere(Vec3f(2, -1.5, -5),1, mirror));
-        object.push_back(new Sphere(Vec3f(0, 2, -6),1, plastic));
-        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0,-0.5, 0.1), plastic));
+        object.push_back(new Sphere(Vec3f(0, 3, -6),1, plastic));
+        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective));
         light.push_back(new Light(Vec3f(2, -2, 7), 0.9));
         light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
