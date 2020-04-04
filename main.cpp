@@ -9,6 +9,8 @@
 #include <omp.h>
 #include <cstdio>
 #include <iostream>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 Vec3f reflect(const Vec3f v,const Vec3f normal)
 {
     return Vec3f(v - normal *2 * dot(v, normal) );
@@ -365,16 +367,14 @@ Vec3f* gamma_corretion(Vec3f *buf, size_t size)
     }
     return buf;
 }
-uint32_t *convert(const Vec3f *buf)
+uint8_t *convert(const Vec3f *buf)
 {
-    struct Pixel { unsigned char r, g, b; } px;
-    uint32_t *ans = new uint32_t[Options::width * Options::height];
+    uint8_t *ans = new uint8_t[3 * Options::width * Options::height];
     for (uint64_t i = 0; i < Options::height * Options::width; i++){
-        ans[i] = 0;
-        ans[i] |= (unsigned char)(limit(0,1,buf[i].x) * 255);
-        ans[i] |= (unsigned char)(limit(0,1,buf[i].y) * 255) << 8;
-        ans[i] |= (unsigned char)(limit(0, 1, buf[i].z) * 255) << 16;
-    }
+        ans[3 *i] = (uint8_t)(limit(0,1,buf[i].x) * 255);
+        ans[3 * i + 1] = (uint8_t)(limit(0,1,buf[i].y) * 255);
+        ans[ 3 *i + 2] = (uint8_t)(limit(0, 1, buf[i].z) * 255);
+    } 
     return ans;
 }
 int main(int argc, const char** argv)
@@ -394,7 +394,7 @@ int main(int argc, const char** argv)
             cmdLineParams[key] = "";
         }
     }
-    std::string outFilePath = "zout.bmp";
+    std::string outFilePath = "zout.png";
     if(cmdLineParams.find("-out") != cmdLineParams.end())
         outFilePath = cmdLineParams["-out"];
     int sceneId = 0;
@@ -418,10 +418,10 @@ int main(int argc, const char** argv)
     Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 500, 0, 2 , 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
     Material reflective(1.5, Vec3f(0.7, 0.7, 0.7), 125, 0.9, 0.2, 0.8, 0, Vec3f(0.05, 0.05, 0.05));
-    Material marble(1.5, Vec3f(0.5,0.6,0.6), 10, 0.9, 0.2, 0, 0);
+    Material marble(1.5, Vec3f(0.5,0.6,0.6), 10, 0.9, 0.2, 0, 0); // no refraction for mesh (no  true normal vectors)
     Material reflective2(1.5, Vec3f(0.8886,0.153,0.7882), 125, 0.9, 0.2, 0.2, 0, Vec3f(0.05,0.05,0.05));
     Vec3f *buf = nullptr;
-    uint32_t *bmp = nullptr;
+    uint8_t *bytes = nullptr;
     if(sceneId == 1){
         object.push_back(new Sphere(Vec3f(-9, 0.5,-10),3, glass));
         object.push_back(new Sphere(Vec3f(0,0.5,-10),3, plastic));
@@ -432,17 +432,15 @@ int main(int argc, const char** argv)
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
         light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
         buf = render_4(object, light);
-        gamma_corretion(buf, Options::width * Options:: height);
     }
     if (sceneId == 2){
         Options::background = Vec3f(0.0, 1.0, 1.0);
         Vec3f offset(0,3 , -26);
         read_obj("heliosbust.obj", object, offset, marble);
         //object.resize(100);
-        std::cout <<"Objects:"<<object.size() <<std::endl << std::flush;
-        //object.push_back(new Triangle(Vec3f(-5,4,-10),Vec3f(5,4,-10), Vec3f(0,-4,-11),plastic));
         object.push_back(new Sphere(Vec3f(9 , 0.5, -10),3, mirror));
         object.push_back(new Sphere(Vec3f(-9 , 0.5, -10),3, marble));
+        std::cout <<"Objects:"<<object.size() <<std::endl << std::flush;
         light.push_back(new Light(Vec3f(0, -2, 1), 0.5));
         light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
@@ -450,10 +448,10 @@ int main(int argc, const char** argv)
         object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective2));
         buf = render(object, light);
     }
-    bmp = convert(buf);
-    SaveBMP(outFilePath.c_str(), bmp, Options::width, Options::height);
+    bytes = convert(buf);
+    stbi_write_bmp(outFilePath.c_str(), Options::width, Options::height,3,bytes);//, Options::width * 3);
     delete[] buf;
-    delete[] bmp;
+    delete[] bytes;
     for (uint32_t i = 0; i < object.size(); i++){
         delete object[i];
     }
