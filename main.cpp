@@ -49,11 +49,12 @@ struct Material
     float k_specular;
     float k_reflection;
     float k_refraction;
+    Vec3f diffuse_color2; // for plane
     Material() {}
     Material(const float n, const Vec3f &v, const float s, const float kd, const float ks,
-            const float k_refl, const float k_refr) : n(n), diffuse_color(v) ,
-            specular_exponent(s), k_diffuse(kd), 
-            k_specular(ks), k_reflection(k_refl), k_refraction(k_refr) {}
+            const float k_refl, const float k_refr, const Vec3f &v2 = Vec3f(0,0,0)) :
+            n(n), diffuse_color(v) , specular_exponent(s), k_diffuse(kd), 
+            k_specular(ks), k_reflection(k_refl), k_refraction(k_refr), diffuse_color2(v2) {}
 
 };
 struct Object
@@ -146,9 +147,9 @@ struct Plane : Object
         int a1 = r.x / 2 + 1000; //hide simmetric part
         int a2 = r.z / 2;
         if ((a1 + a2) % 2 == 0){
-            return Vec3f(0.7, 0.7, 0.7);
+            return material.diffuse_color;
         }
-        return Vec3f(0.05, 0.05, 0.05);
+        return material.diffuse_color2;
 
     }
 };
@@ -246,7 +247,7 @@ namespace Options
     constexpr uint32_t max_depth = 4;
     constexpr float max_distance = 10e9;
     constexpr float offset = 0.01;
-    const Vec3f background(0.08, 0.08, 0.08);
+    Vec3f background(0.08, 0.08, 0.08);
     const Vec3f camera(0,0,0);
 };
 void scene_intersect(const Vec3f &orig, const Vec3f &dir, std::vector<Object *> object, 
@@ -283,11 +284,13 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
     Vec3f reflect_dir =reflect(dir, normal).normalize();
     Vec3f reflect_orig = dot(reflect_dir, normal) < 0 ? hit - Options::offset * normal : 
             hit + Options::offset * normal;
-    Vec3f reflect_color = cast(reflect_orig, reflect_dir, object, light, depth + 1);
+    Vec3f reflect_color =first->material.k_reflection ?
+            cast(reflect_orig, reflect_dir, object, light, depth + 1) : Vec3f(0,0,0);
     Vec3f refract_dir = refract(dir, normal, first->material.n).normalize();
     Vec3f refract_orig = dot(refract_dir, normal) < 0 ? hit - Options::offset * normal :
             hit + Options::offset * normal;
-    Vec3f refract_color = cast(refract_orig, refract_dir, object, light, depth + 1);
+    Vec3f refract_color = first->material.k_refraction ?
+            cast(refract_orig, refract_dir, object, light, depth + 1) : Vec3f(0, 0, 0);
     //Phong illumination model, no ambient
     float light_diffuse =0;
     float light_specular = 0;
@@ -414,8 +417,9 @@ int main(int argc, const char** argv)
     Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.4, 0.2, 0.8);
     Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 500, 0, 2 , 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
-    Material reflective(1.5, Vec3f(0.7,0,0), 125, 0.9, 0.2, 0.8, 0);
-    Material marble(1.5, Vec3f(0.3,0.4,0.4), 10, 0.9, 0.2, 0, 0);
+    Material reflective(1.5, Vec3f(0.7, 0.7, 0.7), 125, 0.9, 0.2, 0.8, 0, Vec3f(0.05, 0.05, 0.05));
+    Material marble(1.5, Vec3f(0.5,0.6,0.6), 10, 0.9, 0.2, 0, 0);
+    Material reflective2(1.5, Vec3f(0.8886,0.153,0.7882), 125, 0.9, 0.2, 0.2, 0, Vec3f(0.05,0.05,0.05));
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;
     if(sceneId == 1){
@@ -428,8 +432,10 @@ int main(int argc, const char** argv)
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
         light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
         buf = render_4(object, light);
+        gamma_corretion(buf, Options::width * Options:: height);
     }
     if (sceneId == 2){
+        Options::background = Vec3f(0.0, 1.0, 1.0);
         Vec3f offset(0,3 , -26);
         read_obj("heliosbust.obj", object, offset, marble);
         //object.resize(100);
@@ -441,9 +447,8 @@ int main(int argc, const char** argv)
         light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
         light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
-        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective));
+        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective2));
         buf = render(object, light);
-        gamma_corretion(buf, Options::width * Options:: height);
     }
     bmp = convert(buf);
     SaveBMP(outFilePath.c_str(), bmp, Options::width, Options::height);
