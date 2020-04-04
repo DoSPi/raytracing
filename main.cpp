@@ -1,4 +1,3 @@
-#include <iostream>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -8,6 +7,8 @@
 #include "Bitmap.h"
 #include "vector.h"
 #include <omp.h>
+#include <cstdio>
+#include <iostream>
 Vec3f reflect(const Vec3f v,const Vec3f normal)
 {
     return Vec3f(v - normal *2 * dot(v, normal) );
@@ -151,49 +152,92 @@ struct Plane : Object
 
     }
 };
-/*
 struct Triangle : Object
 {
     Vec3f  vert[3];
-    Triangle() {}
-    Triangle(const Vec3f &x1, const Vec3f &x2, const Vec3f &x3)
+    Triangle(const Vec3f &x1, const Vec3f &x2, const Vec3f &x3, const Material &m)
     {
         vert[0] = x1;
         vert[1] = x2;
         vert[2] = x3;
+        material = m;
     }
-    bool intersect(const Ray &ray, float &alpha) const
+    bool intersect(const Vec3f &orig, const Vec3f &dir, float &alpha) const
     {
         Vec3f e1 = vert[1] - vert[0];
         Vec3f e2 = vert[2] - vert[0];
-        Vec3f pvec = ray.dir.vector_product(e2);
-        float det = e1.scalar_product(pvec);
-        if (det == 0 || det < 0){
+        Vec3f t = orig -  vert[0];
+        Vec3f p = cross(dir, e2);
+        Vec3f q = cross(t, e1);
+        float det = dot(p, e1);
+        if (det ==0 ){
             return false;
         }
-        Vec3f tvec = ray.pos - vert[0];
-        float u = tvec.scalar_product(pvec);
-        if (u < 0 || u > det){
+        float u = dot(p, t) / det;
+        if (u < 0 ){
             return false;
         }
-        Vec3f qvec = tvec.vector_product(e1);
-        float v = ray.dir.scalar_product(qvec);
-        if (v < 0 || u + v > det){
+        float v = dot(q, dir) / det;
+        if (v < 0){
             return false;
         }
-        alpha = e2.scalar_product(qvec) / det;
+        if (u + v > 1){
+            return false;
+        }
+        alpha = dot(q, e2) / det;
+        if (alpha < 0 ){
+            return false;
+        }
         return true;
+
     }
-    
     Vec3f get_normal(const Vec3f &v) const
     {
         Vec3f a = vert[1] - vert[0];
         Vec3f b = vert[2] - vert[0];
-        return a.vector_product(b).normalize();
-    } 
+        Vec3f normal = cross(a,b).normalize();
+        if (dot(normal, v) > 0){
+            normal = - normal;
+        }
+        return normal;
+    }
+    Vec3f get_color(const Vec3f &pos) const
+    {
+        return material.diffuse_color;
+    }
 
-}; */
-
+}; 
+void read_obj(const char *s, std::vector<Object*> &object, const Vec3f &offset, const Material &m)
+{   
+    char type;
+    std::vector<Vec3f> v;
+    std::vector<Triangle> triangles;
+    FILE *f = fopen(s, "r");
+    char buf[100];
+    while (fgets( buf, 98, f)){
+        if (buf[0]== 'v'){
+            float x, y ,z;
+            if ( sscanf(buf,"%c %f %f %f\n",&type, &x, &y ,&z) != 4){
+                continue;
+            }
+            v.push_back(Vec3f(x + offset.x , -y + offset.y, z+ offset.z));
+        }
+        if (buf[0] == 'f'){
+            uint32_t v1, t1, n1;
+            uint32_t v2, t2, n2;
+            uint32_t v3, t3, n3;
+            if ( sscanf(buf,"%c %u/%u/%u %u/%u/%u %u/%u/%u\n",&type, &v1, &t1, &n1, &v2, &t2, &n2, 
+                    &v3, &t3, &n3) != 10){
+                continue;
+            }
+            if (v1 > v.size() || v2 > v.size() || v3 > v.size()){
+                continue;
+            }
+            object.push_back( new Triangle(v[v1 -1], v[v2 -1], v[v3 - 1], m));
+        }
+    }
+    fclose(f);
+}
 namespace Options
 {
     constexpr float fov =  M_PI / 2;
@@ -234,17 +278,17 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
     if (first  == nullptr){
         return Options::background;
     }
-   // return Vec3f(0.2, 0.5, 0.1);
+    //return Vec3f(0.2, 0.5, 0.1);
     Vec3f normal = first->get_normal(hit);
     Vec3f reflect_dir =reflect(dir, normal).normalize();
     Vec3f reflect_orig = dot(reflect_dir, normal) < 0 ? hit - Options::offset * normal : 
             hit + Options::offset * normal;
-    Vec3f reflect_color =cast(reflect_orig, reflect_dir, object, light, depth + 1);
+    Vec3f reflect_color = cast(reflect_orig, reflect_dir, object, light, depth + 1);
     Vec3f refract_dir = refract(dir, normal, first->material.n).normalize();
     Vec3f refract_orig = dot(refract_dir, normal) < 0 ? hit - Options::offset * normal :
             hit + Options::offset * normal;
     Vec3f refract_color = cast(refract_orig, refract_dir, object, light, depth + 1);
-    //Phong illumination model
+    //Phong illumination model, no ambient
     float light_diffuse =0;
     float light_specular = 0;
     for (uint32_t i = 0; i < light.size(); i++){
@@ -271,8 +315,7 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
             first->material.k_reflection * reflect_color +
             first->material.k_refraction * refract_color;
 }
-Vec3f  *render(const std::vector<Object *> &object,
-        const std::vector<Light *> &light)
+Vec3f  *render(const std::vector<Object *> &object, const std::vector<Light *> &light)
 {
     Vec3f *buf = new Vec3f[Options::width * Options::height];
     const float z = -1 / (2.0 * tan(0.5 * Options::fov)) * Options::height;
@@ -287,8 +330,37 @@ Vec3f  *render(const std::vector<Object *> &object,
             }
         }
     return buf;
-
-
+}
+Vec3f  *render_4(const std::vector<Object *> &object, const std::vector<Light *> &light)
+{
+    Vec3f *buf = new Vec3f[Options::width * Options::height];
+    const float z = -1 / (2.0 * tan(0.5 * Options::fov)) * Options::height;
+    #pragma omp parallel for
+    for (uint32_t i = 0; i < Options::height; i++) {
+        for (uint32_t j = 0 ; j < Options::width; j++) {
+            for (uint32_t a = 0; a < 2; a++) {
+                for (uint32_t b = 0; b < 2; b++) {
+                    float x = (j + 0.25 + 0.5 *a ) -  Options::width / 2.0;
+                    float y = -(i + 0.25 + 0.5 *b) + Options::height / 2.0;
+                    buf[Options::width * i + j] += cast(Options::camera,
+                            Vec3f(x, y, z).normalize(),
+                            object, light, 0) * 0.25;
+                }
+            }
+        }
+    }
+    return buf;
+}
+Vec3f* gamma_corretion(Vec3f *buf, size_t size)
+{
+    constexpr float inverse = 1.0f/ 2.2;
+    for (size_t i = 0; i < size; i++){
+        float x = pow(buf[i].x, inverse);
+        float y = pow(buf[i].y, inverse);
+        float z = pow(buf[i].z, inverse);
+        buf[i] = Vec3f(x, y, z);
+    }
+    return buf;
 }
 uint32_t *convert(const Vec3f *buf)
 {
@@ -326,17 +398,16 @@ int main(int argc, const char** argv)
     if(cmdLineParams.find("-scene") != cmdLineParams.end()){
         sceneId = atoi(cmdLineParams["-scene"].c_str());
     }
-    if (sceneId != 1){
+    if (sceneId == 3){
         return 0;
     }
-        if(cmdLineParams.find("-threads") != cmdLineParams.end()){
-            uint32_t threads =atoi(cmdLineParams["-threads"].c_str());
-            if (threads == 0){
-                threads = 1;
-            }
-            omp_set_num_threads(threads);
+    if(cmdLineParams.find("-threads") != cmdLineParams.end()){
+        uint32_t threads =atoi(cmdLineParams["-threads"].c_str());
+        if (threads == 0){
+            threads = 1;
         }
-
+        omp_set_num_threads(threads);
+    }
     std::vector<Object *> object;
     std::vector<Light *> light;
     // n, diff_color , specular, kd, ks, refl. refr
@@ -344,6 +415,7 @@ int main(int argc, const char** argv)
     Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 500, 0, 2 , 0.9, 0);
     Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
     Material reflective(1.5, Vec3f(0.7,0,0), 125, 0.9, 0.2, 0.8, 0);
+    Material marble(1.5, Vec3f(0.3,0.4,0.4), 10, 0.9, 0.2, 0, 0);
     Vec3f *buf = nullptr;
     uint32_t *bmp = nullptr;
     if(sceneId == 1){
@@ -355,10 +427,23 @@ int main(int argc, const char** argv)
         light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
         light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
         light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
-        buf = render(object, light);
+        buf = render_4(object, light);
     }
     if (sceneId == 2){
-
+        Vec3f offset(0,3 , -26);
+        read_obj("heliosbust.obj", object, offset, marble);
+        //object.resize(100);
+        std::cout <<"Objects:"<<object.size() <<std::endl << std::flush;
+        //object.push_back(new Triangle(Vec3f(-5,4,-10),Vec3f(5,4,-10), Vec3f(0,-4,-11),plastic));
+        object.push_back(new Sphere(Vec3f(9 , 0.5, -10),3, mirror));
+        object.push_back(new Sphere(Vec3f(-9 , 0.5, -10),3, marble));
+        light.push_back(new Light(Vec3f(0, -2, 1), 0.5));
+        light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
+        light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
+        light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
+        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective));
+        buf = render(object, light);
+        gamma_corretion(buf, Options::width * Options:: height);
     }
     bmp = convert(buf);
     SaveBMP(outFilePath.c_str(), bmp, Options::width, Options::height);

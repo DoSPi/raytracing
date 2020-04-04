@@ -1,7 +1,7 @@
 struct Vec3f
 {
     float x, y, z;
-    Vec3f() {};
+    Vec3f() : x(0), y(0), z(0) {};
     Vec3f(const float x, const float y,const  float z) : x(x), y(y), z(z) {
     }
     Vec3f(const Vec3f &v) : x(v.x), y(v.y), z(v.z) {}
