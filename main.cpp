@@ -4,13 +4,14 @@
 #include <unordered_map>
 #include<cmath>
 #include <algorithm>
-#include "Bitmap.h"
 #include "vector.h"
 #include <omp.h>
 #include <cstdio>
 #include <iostream>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include "stb_image.h"
 Vec3f reflect(const Vec3f v,const Vec3f normal)
 {
     return Vec3f(v - normal *2 * dot(v, normal) );
@@ -35,7 +36,7 @@ Vec3f refract(const Vec3f &v, Vec3f  normal, float n2)
         return Vec3f(0,0,0);
     }
     return v * n + normal * (n * cosa - sqrtf(cosb2));
-}  
+}
 struct Light
 {
     Vec3f position;
@@ -145,7 +146,6 @@ struct Plane : Object
     Vec3f get_color(const Vec3f &pos) const
     {
         Vec3f r =  pos - position;
-        Vec3f normal = get_normal(pos);
         int a1 = r.x / 2 + 1000; //hide simmetric part
         int a2 = r.z / 2;
         if ((a1 + a2) % 2 == 0){
@@ -155,6 +155,52 @@ struct Plane : Object
 
     }
 };
+struct Circle : Object
+{
+    Vec3f position;
+    Vec3f normal;
+    float radius;
+    Circle( const Vec3f &position,  Vec3f n, const float radius, const Material &m) :
+            position(position), normal(n), radius(radius)
+    {
+        n.normalize();
+        material = m;
+    }
+    Vec3f get_normal(const Vec3f &v) const
+    {
+        if (dot(v, normal) < 0){
+            return normal;
+        }
+        return -normal;
+    }
+    bool intersect(const Vec3f &orig, const Vec3f &dir, float &alpha) const
+    {
+        float d = dot(dir, normal);
+        if (d == 0){
+            return false;
+        }
+        float a = dot(position - orig, normal);
+        if (a == 0){ // when ray orig in the plane 
+            return false;
+        }
+        alpha = a/ d;
+        if (alpha <= 0){
+            return false;
+        }
+        Vec3f hit = orig + alpha * dir;
+        Vec3f r = hit - position;
+        float norm2 = r.x * r.x + r.y * r.y + r.z * r.z;
+        if (norm2 > radius * radius){
+            return false;
+        }
+        return true;
+    }
+    Vec3f get_color(const Vec3f &pos) const
+    {
+        return material.diffuse_color;
+    }
+};
+
 struct Triangle : Object
 {
     Vec3f  vert[3];
@@ -223,7 +269,7 @@ void read_obj(const char *s, std::vector<Object*> &object, const Vec3f &offset, 
             if ( sscanf(buf,"%c %f %f %f\n",&type, &x, &y ,&z) != 4){
                 continue;
             }
-            v.push_back(Vec3f(x + offset.x , -y + offset.y, z+ offset.z));
+            v.push_back(Vec3f(x + offset.x , y + offset.y, z+ offset.z));
         }
         if (buf[0] == 'f'){
             uint32_t v1, t1, n1;
@@ -246,11 +292,15 @@ namespace Options
     constexpr float fov =  M_PI / 2;
     constexpr uint32_t width = 800;
     constexpr uint32_t height = 512;
-    constexpr uint32_t max_depth = 4;
+    constexpr uint32_t max_depth = 5;
     constexpr float max_distance = 10e9;
     constexpr float offset = 0.01;
-    Vec3f background(0.08, 0.08, 0.08);
+    uint32_t scene_id;
+    Vec3f background(0.1, 0.1, 0.1);
     const Vec3f camera(0,0,0);
+    unsigned char *image;
+    int  image_width;
+    int image_height;
 };
 void scene_intersect(const Vec3f &orig, const Vec3f &dir, std::vector<Object *> object, 
         Object **first, Vec3f &hit)
@@ -279,6 +329,13 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
     Vec3f hit;
     scene_intersect(orig, dir, object, &first, hit);
     if (first  == nullptr){
+        if (Options::scene_id == 2){
+                int x =  (1.0 + dir.x) * Options::image_width / 2.0;
+                int y = ( 1.0 - dir.y) * Options::image_height /2.0 ;
+                unsigned char *p = Options::image;
+                size_t index = x + Options::image_width * y;
+                return Vec3f(p[3 * index] / 255.0, p[3 * index + 1] / 255.0, p[3 * index + 2] / 255.0);
+        }
         return Options::background;
     }
     //return Vec3f(0.2, 0.5, 0.1);
@@ -286,13 +343,13 @@ Vec3f cast(const Vec3f &orig, const Vec3f &dir, const std::vector<Object *> &obj
     Vec3f reflect_dir =reflect(dir, normal).normalize();
     Vec3f reflect_orig = dot(reflect_dir, normal) < 0 ? hit - Options::offset * normal : 
             hit + Options::offset * normal;
-    Vec3f reflect_color =first->material.k_reflection ?
+    Vec3f reflect_color = first->material.k_reflection ?
             cast(reflect_orig, reflect_dir, object, light, depth + 1) : Vec3f(0,0,0);
-    Vec3f refract_dir = refract(dir, normal, first->material.n).normalize();
+    Vec3f refract_dir = first->material.k_refraction ?
+            refract(dir, normal, first->material.n).normalize() : Vec3f(0,0,0);
     Vec3f refract_orig = dot(refract_dir, normal) < 0 ? hit - Options::offset * normal :
             hit + Options::offset * normal;
-    Vec3f refract_color = first->material.k_refraction ?
-            cast(refract_orig, refract_dir, object, light, depth + 1) : Vec3f(0, 0, 0);
+    Vec3f refract_color = cast(refract_orig, refract_dir, object, light, depth + 1);
     //Phong illumination model, no ambient
     float light_diffuse =0;
     float light_specular = 0;
@@ -356,14 +413,13 @@ Vec3f  *render_4(const std::vector<Object *> &object, const std::vector<Light *>
     }
     return buf;
 }
-Vec3f* gamma_corretion(Vec3f *buf, size_t size)
+Vec3f* tone_mapping(Vec3f *buf, size_t size)
 {
-    constexpr float inverse = 1.0f/ 2.2;
     for (size_t i = 0; i < size; i++){
-        float x = pow(buf[i].x, inverse);
-        float y = pow(buf[i].y, inverse);
-        float z = pow(buf[i].z, inverse);
-        buf[i] = Vec3f(x, y, z);
+        buf[i].x = buf[i].x/ (buf[i].x + 1);
+        buf[i].y = buf[i].y/ (buf[i].y + 1);
+        buf[i].z = buf[i].z/ (buf[i].z + 1);
+
     }
     return buf;
 }
@@ -394,7 +450,7 @@ int main(int argc, const char** argv)
             cmdLineParams[key] = "";
         }
     }
-    std::string outFilePath = "zout.png";
+    std::string outFilePath = "zout.bmp";
     if(cmdLineParams.find("-out") != cmdLineParams.end())
         outFilePath = cmdLineParams["-out"];
     int sceneId = 0;
@@ -411,45 +467,55 @@ int main(int argc, const char** argv)
         }
         omp_set_num_threads(threads);
     }
+    Options::scene_id = sceneId;
     std::vector<Object *> object;
     std::vector<Light *> light;
     // n, diff_color , specular, kd, ks, refl. refr
-    Material glass(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.1, 0.4, 0.2, 0.8);
+    Material refract(1.5, Vec3f(0.6, 0.7, 0.8), 100 ,0.05, 0.4, 0.2, 0.8);
     Material mirror(1.5, Vec3f(1.0, 1.0, 1.0), 500, 0, 2 , 0.9, 0);
-    Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.1, 0);
+    Material plastic(1.5, Vec3f(0.7,0,0), 125, 0.8, 0.2, 0.01, 0);
     Material reflective(1.5, Vec3f(0.7, 0.7, 0.7), 125, 0.9, 0.2, 0.8, 0, Vec3f(0.05, 0.05, 0.05));
     Material marble(1.5, Vec3f(0.5,0.6,0.6), 10, 0.9, 0.2, 0, 0); // no refraction for mesh (no  true normal vectors)
     Material reflective2(1.5, Vec3f(0.8886,0.153,0.7882), 125, 0.9, 0.2, 0.2, 0, Vec3f(0.05,0.05,0.05));
     Vec3f *buf = nullptr;
     uint8_t *bytes = nullptr;
     if(sceneId == 1){
-        object.push_back(new Sphere(Vec3f(-9, 0.5,-10),3, glass));
-        object.push_back(new Sphere(Vec3f(0,0.5,-10),3, plastic));
-        object.push_back(new Sphere(Vec3f(0, 3,-5),1, plastic));
-        object.push_back(new Sphere(Vec3f(9 , 0.5, -10),3, mirror));
-        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective));
-        light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
-        light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
-        light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
-        buf = render_4(object, light);
+        object.push_back(new Sphere(Vec3f(-9, -0.5,-10),3, refract));
+        object.push_back(new Sphere(Vec3f(0,-0.5,-10),3, plastic));
+        object.push_back(new Sphere(Vec3f(0, -3,-5),1, plastic));
+        object.push_back(new Sphere(Vec3f(9 , -0.5, -10),3, mirror));
+        object.push_back(new Plane(Vec3f(0,-4,0),Vec3f(0, 1, 0), reflective));
+        light.push_back(new Light(Vec3f(-2, 2, 5), 2.5));
+        light.push_back(new Light(Vec3f(3, 10, -5), 3.5));
+        light.push_back(new Light(Vec3f(10, 50, -28), 2.5));
+        light.push_back(new Light(Vec3f(-8, -0.5, -10), 2.5));
+        buf = render(object, light);
+        tone_mapping(buf, Options::width * Options::height);
     }
     if (sceneId == 2){
         Options::background = Vec3f(0.0, 1.0, 1.0);
-        Vec3f offset(0,3 , -26);
+        int n;
+        Options::image = stbi_load("envmap.jpg", &Options::image_width, &Options::image_height, &n, 3);
+        if (Options::image == NULL){
+            throw 1;
+        };
+        Vec3f offset(0, -3 , -26);
         read_obj("heliosbust.obj", object, offset, marble);
         //object.resize(100);
-        object.push_back(new Sphere(Vec3f(9 , 0.5, -10),3, mirror));
-        object.push_back(new Sphere(Vec3f(-9 , 0.5, -10),3, marble));
+        object.push_back(new Sphere(Vec3f(6 , -0.5, -10),3, glass));
+        object.push_back(new Sphere(Vec3f(-6 , -0.5, -10),3, marble));
         std::cout <<"Objects:"<<object.size() <<std::endl << std::flush;
-        light.push_back(new Light(Vec3f(0, -2, 1), 0.5));
-        light.push_back(new Light(Vec3f(-2, -2, 5), 0.5));
-        light.push_back(new Light(Vec3f(3, -10, -5), 0.5));
-        light.push_back(new Light(Vec3f(10, -50, -28), 0.5));
-        object.push_back(new Plane(Vec3f(0,4,0),Vec3f(0, -1, 0), reflective2));
+        light.push_back(new Light(Vec3f(0, 2, 1), 0.5));
+        light.push_back(new Light(Vec3f(-2, 2, 5), 0.5));
+        light.push_back(new Light(Vec3f(3, 10, -5), 0.5));
+        light.push_back(new Light(Vec3f(10, 50, -28), 0.5));
+         object.push_back(new  Circle(Vec3f(0 , -4, -10),Vec3f(0,1,0),12, marble));
+        //object.push_back(new Plane(Vec3f(0,-4,0),Vec3f(0, 1, 0), reflective2));
         buf = render(object, light);
+        stbi_image_free(Options::image);
     }
     bytes = convert(buf);
-    stbi_write_bmp(outFilePath.c_str(), Options::width, Options::height,3,bytes);//, Options::width * 3);
+    stbi_write_bmp(outFilePath.c_str(), Options::width, Options::height,3,bytes);
     delete[] buf;
     delete[] bytes;
     for (uint32_t i = 0; i < object.size(); i++){

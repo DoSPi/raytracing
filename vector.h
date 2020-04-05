@@ -47,7 +47,6 @@ struct Vec3f
     {
         return Vec3f(a * v.x, a * v.y, a* v.z);
     }
-
     Vec3f &  normalize()
     {
         float t = sqrtf(x * x + y * y + z* z);
